@@ -1,7 +1,7 @@
 server {
     listen 80;
     server_name project-a.localhost;
-    root /var/www/html/tobyblog-md/public;
+    root /var/www/html/project-a/public;
     index index.php index.html;
 
     location / {

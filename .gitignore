@@ -1,6 +1,9 @@
 # Environment
 .env
 
+# Nginx config (only .example files are committed)
+docker/**/default.conf
+
 # Project source code (mounted volumes)
 httpdocs/project-a/
 httpdocs/project-b/

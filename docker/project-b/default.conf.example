@@ -1,7 +1,7 @@
 server {
     listen 80;
-    server_name project-a.localhost;
-    root /var/www/html/tobyblog-md/public;
+    server_name project-b.localhost;
+    root /var/www/html/project-b/public;
     index index.php index.html;
 
     location / {
@@ -9,7 +9,7 @@ server {
     }
 
     location ~ \.php$ {
-        fastcgi_pass app-a:9000;
+        fastcgi_pass app-b:9000;
         fastcgi_index index.php;
         fastcgi_param SCRIPT_FILENAME $realpath_root$fastcgi_script_name;
         include fastcgi_params;
