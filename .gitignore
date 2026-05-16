@@ -1,0 +1,19 @@
+# Environment
+.env
+
+# Project source code (mounted volumes)
+httpdocs/project-a/
+httpdocs/project-b/
+
+# MySQL data
+mysql_data/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
