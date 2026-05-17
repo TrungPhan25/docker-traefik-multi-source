@@ -35,7 +35,15 @@ traefik-multi-source/
 ├── docker-compose.yml          # Định nghĩa tất cả services
 ├── .env.example                # Biến môi trường mẫu
 ├── .gitignore
+├── scripts/
+│   └── gen-certs.sh            # Script tạo SSL cert local
 ├── docker/
+│   ├── traefik/
+│   │   ├── domains.txt         # Danh sách domain cần SSL
+│   │   ├── tls.yml             # TLS config cho Traefik
+│   │   └── certs/              # Cert được tạo bởi mkcert (git-ignored)
+│   │       ├── local.crt
+│   │       └── local.key
 │   ├── mysql/
 │   │   └── init/
 │   │       └── 01-create-databases.sql   # Tạo DB cho mỗi project
@@ -58,6 +66,11 @@ traefik-multi-source/
 
 - Docker & Docker Compose (v2+)
 - Các domain `*.localhost` tự động resolve về `127.0.0.1` trên hầu hết OS
+- [mkcert](https://github.com/FiloSottile/mkcert) để tạo SSL cert local (cài 1 lần)
+  ```bash
+  brew install mkcert
+  mkcert -install
+  ```
 
 ---
 
@@ -80,10 +93,17 @@ cp docker/project-b/default.conf.example docker/project-b/default.conf
 git clone <project-a-repo> httpdocs/project-a
 git clone <project-b-repo> httpdocs/project-b
 
-# 5. Khởi chạy hạ tầng (Traefik + MySQL + phpMyAdmin)
+# 5. Tạo SSL cert local
+chmod +x scripts/gen-certs.sh
+./scripts/gen-certs.sh
+
+# 6. Thêm domain vào /etc/hosts
+sudo sh -c 'echo "127.0.0.1 toby.vn traefik.toby.local pma.localhost" >> /etc/hosts'
+
+# 7. Khởi chạy hạ tầng (Traefik + MySQL + phpMyAdmin)
 docker compose --profile infra up -d
 
-# 6. Khởi chạy project cần dùng
+# 8. Khởi chạy project cần dùng
 docker compose --profile project-a up -d
 docker compose --profile project-b up -d
 ```
@@ -115,12 +135,14 @@ docker compose --profile infra --profile project-a --profile project-b up -d
 
 ## Truy cập
 
-| Service           | URL                        |
-| ----------------- | -------------------------- |
-| Project A         | http://project-a.localhost |
-| Project B         | http://project-b.localhost |
-| phpMyAdmin        | http://pma.localhost       |
-| Traefik Dashboard | http://localhost:8080      |
+| Service           | URL                          |
+| ----------------- | ---------------------------- |
+| Project A         | https://toby.vn              |
+| Project B         | https://project-b.localhost  |
+| phpMyAdmin        | https://pma.localhost        |
+| Traefik Dashboard | https://traefik.toby.local   |
+
+> HTTP (`http://`) sẽ tự động redirect sang HTTPS.
 
 ---
 
@@ -457,12 +479,77 @@ DB_PASSWORD=secret
 
 ---
 
+## HTTPS Local
+
+Template sử dụng **mkcert** để tạo SSL cert được trust hoàn toàn trên máy local (không có cảnh báo trình duyệt).
+
+### Cấu trúc HTTPS
+
+```
+mkcert -install       ← Cài CA vào hệ thống (1 lần duy nhất)
+       │
+       ▼
+docker/traefik/domains.txt   ← Danh sách domain cần SSL
+       │
+       ▼
+scripts/gen-certs.sh  ← Tạo cert từ danh sách domain
+       │
+       ▼
+docker/traefik/certs/ ← Cert được mount vào Traefik
+       │
+       ▼
+Traefik phục vụ HTTPS cho tất cả services
+```
+
+### Quản lý domains SSL
+
+Danh sách domain được lưu trong `docker/traefik/domains.txt`. Hỗ trợ **wildcard** để không phải thêm từng subdomain:
+
+```
+toby.vn
+*.toby.local
+*.localhost
+```
+
+Với cấu hình này, mọi subdomain của `*.toby.local` và `*.localhost` đều được HTTPS tự động mà **không cần tạo lại cert**.
+
+### Khi thêm domain mới
+
+```bash
+# 1. Thêm domain vào domains.txt (nếu không cover bởi wildcard)
+echo "newdomain.com" >> docker/traefik/domains.txt
+
+# 2. Thêm vào /etc/hosts (nếu không dùng DNS thật)
+sudo sh -c 'echo "127.0.0.1 newdomain.com" >> /etc/hosts'
+
+# 3. Tạo lại cert và restart Traefik
+./scripts/gen-certs.sh
+```
+
+> Nếu domain đã được cover bởi wildcard (vd: `blog.toby.local` cover bởi `*.toby.local`), chỉ cần bước 2 và thêm service vào `docker-compose.yml`.
+
+### script gen-certs.sh
+
+```bash
+# Tạo cert từ danh sách trong domains.txt
+./scripts/gen-certs.sh
+```
+
+Script tự động:
+- Đọc danh sách domain từ `docker/traefik/domains.txt`
+- Chạy `mkcert` để tạo cert
+- Restart Traefik để load cert mới
+
+---
+
 ## Lưu ý quan trọng
 
 - Source code trong `httpdocs/` **không** được đưa lên git (mỗi project có repo riêng)
 - File `.env` chứa thông tin nhạy cảm, chỉ có `.env.example` được commit
 - File `default.conf` bị git-ignore, chỉ commit `default.conf.example`
+- File `docker/traefik/certs/` bị git-ignore, chỉ commit `domains.txt` và `tls.yml`
 - Tất cả project dùng chung volume `./httpdocs` → mỗi project là 1 subfolder
-- Traefik dashboard mặc định **không có auth** (`--api.insecure=true`), chỉ nên dùng cho development
+- Traefik dashboard truy cập qua `https://traefik.toby.local` (không expose port 8080)
 - MySQL init script (`01-create-databases.sql`) chỉ chạy lần đầu khi volume chưa tồn tại
 - Khi dùng domain thật (không phải `*.localhost`), cần cấu hình DNS hoặc `/etc/hosts`
+- `mkcert -install` phải chạy **1 lần trên mỗi máy** để trình duyệt trust cert local

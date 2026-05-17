@@ -10,15 +10,27 @@ services:
       - "--providers.docker=true"
       - "--providers.docker.exposedbydefault=false"
       - "--entrypoints.web.address=:80"
+      - "--entrypoints.web.http.redirections.entrypoint.to=websecure"
+      - "--entrypoints.web.http.redirections.entrypoint.scheme=https"
+      - "--entrypoints.websecure.address=:443"
+      - "--providers.file.filename=/traefik/tls.yml"
       - "--api.dashboard=true"
-      - "--api.insecure=true"
+      - "--api.insecure=false"
     ports:
       - "80:80"
-      - "8080:8080"
+      - "443:443"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./docker/traefik/tls.yml:/traefik/tls.yml:ro
+      - ./docker/traefik/certs:/certs:ro
     networks:
       - app-network
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.traefik-dashboard.rule=Host(`traefik.toby.local`)"
+      - "traefik.http.routers.traefik-dashboard.entrypoints=websecure"
+      - "traefik.http.routers.traefik-dashboard.tls=true"
+      - "traefik.http.routers.traefik-dashboard.service=api@internal"
 
   # ============================================
   # MYSQL - Shared Database
@@ -64,7 +76,8 @@ services:
     labels:
       - "traefik.enable=true"
       - "traefik.http.routers.pma.rule=Host(`pma.localhost`)"
-      - "traefik.http.routers.pma.entrypoints=web"
+      - "traefik.http.routers.pma.entrypoints=websecure"
+      - "traefik.http.routers.pma.tls=true"
       - "traefik.http.services.pma-svc.loadbalancer.server.port=80"
 
   # ============================================
@@ -99,7 +112,8 @@ services:
     labels:
       - "traefik.enable=true"
       - "traefik.http.routers.project-a.rule=Host(`toby.vn`)"
-      - "traefik.http.routers.project-a.entrypoints=web"
+      - "traefik.http.routers.project-a.entrypoints=websecure"
+      - "traefik.http.routers.project-a.tls=true"
       - "traefik.http.services.project-a-svc.loadbalancer.server.port=80"
 
   # ============================================
@@ -134,7 +148,8 @@ services:
     labels:
       - "traefik.enable=true"
       - "traefik.http.routers.project-b.rule=Host(`project-b.localhost`)"
-      - "traefik.http.routers.project-b.entrypoints=web"
+      - "traefik.http.routers.project-b.entrypoints=websecure"
+      - "traefik.http.routers.project-b.tls=true"
       - "traefik.http.services.project-b-svc.loadbalancer.server.port=80"
 
 # ============================================
