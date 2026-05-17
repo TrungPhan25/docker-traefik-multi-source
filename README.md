@@ -4,6 +4,41 @@ Docker Compose template để chạy nhiều dự án PHP/Laravel trên cùng m�
 
 ---
 
+## Mục lục
+
+- [Kiến trúc tổng quan](#kiến-trúc-tổng-quan)
+  - [Cấu trúc thư mục](#cấu-trúc-thư-mục)
+- [Yêu cầu](#yêu-cầu)
+- [Cài đặt ban đầu](#cài-đặt-ban-đầu)
+- [Profiles - Cách quản lý services](#profiles---cách-quản-lý-services)
+- [Truy cập](#truy-cập)
+- [Hướng dẫn thêm project mới](#hướng-dẫn-thêm-project-mới-ví-dụ-tobyvn)
+  - [Bước 1: Tạo Dockerfile](#bước-1-tạo-dockerfile)
+  - [Bước 2: Tạo Nginx config](#bước-2-tạo-nginx-config)
+  - [Bước 3: Thêm services vào docker-compose.yml](#bước-3-thêm-services-vào-docker-composeyml)
+  - [Bước 4: Thêm database](#bước-4-thêm-database)
+  - [Bước 5: Thêm profile mysql và cập nhật .gitignore](#bước-5-thêm-profile-mysql-và-cập-nhật-gitignore)
+  - [Bước 6: Đặt source code và khởi chạy](#bước-6-đặt-source-code-và-khởi-chạy)
+- [Các lệnh thường dùng](#các-lệnh-thường-dùng)
+  - [Khởi chạy / Dừng](#khởi-chạy--dừng)
+  - [Khi cập nhật Dockerfile](#khi-cập-nhật-dockerfile)
+  - [Khi cập nhật default.conf (Nginx config)](#khi-cập-nhật-defaultconf-nginx-config)
+  - [Khi đổi domain / route (Traefik label)](#khi-đổi-domain--route-traefik-label)
+  - [Khi cập nhật docker-compose.yml](#khi-cập-nhật-docker-composeyml)
+  - [Khi cập nhật 01-create-databases.sql](#khi-cập-nhật-01-create-databasessql)
+  - [Chạy lệnh trong container](#chạy-lệnh-trong-container)
+  - [Xem logs](#xem-logs)
+  - [Debug & Kiểm tra](#debug--kiểm-tra)
+- [Biến môi trường (.env)](#biến-môi-trường-env)
+- [HTTPS Local](#https-local)
+  - [Cấu trúc HTTPS](#cấu-trúc-https)
+  - [Quản lý domains SSL](#quản-lý-domains-ssl)
+  - [Khi thêm domain mới](#khi-thêm-domain-mới)
+  - [Script gen-certs.sh](#script-gen-certssh)
+- [Lưu ý quan trọng](#lưu-ý-quan-trọng)
+
+---
+
 ## Kiến trúc tổng quan
 
 ```
