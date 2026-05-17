@@ -327,11 +327,46 @@ docker compose restart nginx-a
 docker restart nginx-a
 ```
 
+### Khi đổi domain / route (Traefik label)
+
+Traefik đọc labels lúc container **khởi động**, nên phải recreate container sau khi đổi.
+
+**Ví dụ: đổi domain từ `project-a.localhost` → `toby.vn`**
+
+Bước 1 — Đổi trong `docker-compose.yml`:
+```yaml
+- "traefik.http.routers.project-a.rule=Host(`toby.vn`)"
+```
+
+Bước 2 — Đổi `server_name` trong `docker/project-a/default.conf`:
+```nginx
+server_name toby.vn;
+```
+
+Bước 3 — Thêm domain vào `/etc/hosts` (nếu không dùng DNS thật):
+```bash
+sudo sh -c 'echo "127.0.0.1 toby.vn" >> /etc/hosts'
+```
+
+Bước 4 — Recreate container để Traefik nhận label mới:
+```bash
+docker compose --profile project-a up -d --force-recreate
+```
+
+Bước 5 — Kiểm tra Traefik đã nhận route mới chưa:
+```bash
+# Xem trên dashboard
+open http://localhost:8080
+
+# Hoặc qua API
+curl -s http://localhost:8080/api/http/routers | python3 -m json.tool | grep -A3 "project-a"
+```
+
 ### Khi cập nhật `docker-compose.yml`
 
 ```bash
 # Recreate containers với config mới
-docker compose --profile project-a up -d
+docker compose --profile project-a up -d --force-recreate
 
 # Nếu thêm service mới, cần build
 docker compose --profile <new-profile> up -d --build

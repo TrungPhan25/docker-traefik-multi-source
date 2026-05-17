@@ -98,7 +98,7 @@ services:
       - app-network
     labels:
       - "traefik.enable=true"
-      - "traefik.http.routers.project-a.rule=Host(`project-a.localhost`)"
+      - "traefik.http.routers.project-a.rule=Host(`toby.vn`)"
       - "traefik.http.routers.project-a.entrypoints=web"
       - "traefik.http.services.project-a-svc.loadbalancer.server.port=80"
 
