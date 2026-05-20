@@ -111,7 +111,7 @@ services:
       - app-network
     labels:
       - "traefik.enable=true"
-      - "traefik.http.routers.project-a.rule=Host(`toby.vn`)"
+      - "traefik.http.routers.project-a.rule=Host(`toby.dev.local`)"
       - "traefik.http.routers.project-a.entrypoints=websecure"
       - "traefik.http.routers.project-a.tls=true"
       - "traefik.http.services.project-a-svc.loadbalancer.server.port=80"

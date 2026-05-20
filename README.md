@@ -283,7 +283,8 @@ nginx-toby:
   labels:
     - "traefik.enable=true"
     - "traefik.http.routers.toby.rule=Host(`toby.localhost`)"
-    - "traefik.http.routers.toby.entrypoints=web"
+    - "traefik.http.routers.toby.entrypoints=websecure"
+    - "traefik.http.routers.toby.tls=true"
     - "traefik.http.services.toby-svc.loadbalancer.server.port=80"
 ```
 
@@ -390,9 +391,13 @@ Traefik đọc labels lúc container **khởi động**, nên phải recreate co
 
 **Ví dụ: đổi domain từ `project-a.localhost` → `toby.vn`**
 
-Bước 1 — Đổi trong `docker-compose.yml`:
+Bước 1 — Đổi trong `docker-compose.yml` (toàn bộ label block của nginx):
 ```yaml
+- "traefik.enable=true"
 - "traefik.http.routers.project-a.rule=Host(`toby.vn`)"
+- "traefik.http.routers.project-a.entrypoints=websecure"
+- "traefik.http.routers.project-a.tls=true"
+- "traefik.http.services.project-a-svc.loadbalancer.server.port=80"
 ```
 
 Bước 2 — Đổi `server_name` trong `docker/project-a/default.conf`:
@@ -405,12 +410,28 @@ Bước 3 — Thêm domain vào `/etc/hosts` (nếu không dùng DNS thật):
 sudo sh -c 'echo "127.0.0.1 toby.vn" >> /etc/hosts'
 ```
 
-Bước 4 — Recreate container để Traefik nhận label mới:
+Bước 4 — Kiểm tra SSL cert có cover domain mới không:
+
+```bash
+# Xem danh sách domain đang được cert
+cat docker/traefik/domains.txt
+```
+
+Nếu domain mới **không** được cover bởi wildcard hiện có (vd: `toby.vn` không phải `*.localhost`), cần thêm và tạo lại cert:
+
+```bash
+echo "toby.vn" >> docker/traefik/domains.txt
+./scripts/gen-certs.sh   # tạo lại cert và restart Traefik
+```
+
+> Nếu domain đã được cover (vd: `blog.toby.local` cover bởi `*.toby.local`), bỏ qua bước này.
+
+Bước 5 — Recreate container để Traefik nhận label mới:
 ```bash
 docker compose --profile project-a up -d --force-recreate
 ```
 
-Bước 5 — Kiểm tra Traefik đã nhận route mới chưa:
+Bước 6 — Kiểm tra Traefik đã nhận route mới chưa:
 ```bash
 # Xem trên dashboard
 open http://localhost:8080
@@ -428,6 +449,11 @@ docker compose --profile project-a up -d --force-recreate
 # Nếu thêm service mới, cần build
 docker compose --profile <new-profile> up -d --build
 ```
+
+> **`--force-recreate` vs `up -d` thông thường**
+>
+> - `up -d` — Docker Compose tự so sánh config và chỉ recreate container khi phát hiện thay đổi. Dùng cho hầu hết trường hợp hàng ngày.
+> - `up -d --force-recreate` — Buộc xóa và tạo lại container dù config có thay đổi hay không. Cần thiết khi sửa **Traefik labels**, **networks**, hoặc **`container_name`** mà `up -d` không tự nhận ra.
 
 ### Khi cập nhật `01-create-databases.sql`
 
