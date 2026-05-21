@@ -91,6 +91,7 @@ services:
     profiles: ["project-a"]
     volumes:
     - ./httpdocs:/var/www/html
+    - ./docker/project-a/xdebug.ini:/usr/local/etc/php/conf.d/xdebug.ini:ro
     working_dir: /var/www/html
     depends_on:
       mysql:

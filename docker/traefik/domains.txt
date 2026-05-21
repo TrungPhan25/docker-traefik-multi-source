@@ -1,3 +1,4 @@
 toby.vn
 *.toby.local
 *.localhost
+*.dev.local

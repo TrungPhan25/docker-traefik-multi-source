@@ -36,6 +36,11 @@ Docker Compose template để chạy nhiều dự án PHP/Laravel trên cùng m�
   - [Khi thêm domain mới](#khi-thêm-domain-mới)
   - [Script gen-certs.sh](#script-gen-certssh)
 - [Lưu ý quan trọng](#lưu-ý-quan-trọng)
+- [Xdebug](#xdebug)
+  - [Cấu trúc file Xdebug](#cấu-trúc-file-xdebug)
+  - [Rebuild container](#rebuild-container)
+  - [Cấu hình VS Code](#cấu-hình-vs-code)
+  - [Bật tắt Xdebug theo nhu cầu](#bật-tắt-xdebug-theo-nhu-cầu)
 
 ---
 
@@ -600,6 +605,101 @@ Script tự động:
 - Đọc danh sách domain từ `docker/traefik/domains.txt`
 - Chạy `mkcert` để tạo cert
 - Restart Traefik để load cert mới
+
+---
+
+## Xdebug
+
+Xdebug đã được cài sẵn trong `docker/project-a/Dockerfile`. Các file liên quan:
+
+### Cấu trúc file Xdebug
+
+| File | Mô tả |
+| ---- | ----- |
+| `docker/project-a/Dockerfile` | Cài Xdebug qua `pecl install xdebug` |
+| `docker/project-a/xdebug.ini` | Config Xdebug (mode, port, host) |
+| `docker-compose.yml` → `app-a` | Mount `xdebug.ini` vào container |
+| `.vscode/launch.json` | Config debug cho VS Code |
+
+Nội dung `docker/project-a/xdebug.ini`:
+
+```ini
+zend_extension=xdebug
+
+[xdebug]
+xdebug.mode = debug
+xdebug.start_with_request = yes
+xdebug.client_host = host.docker.internal
+xdebug.client_port = 9003
+xdebug.log_level = 0
+```
+
+> `host.docker.internal` là địa chỉ máy host từ trong container — hoạt động sẵn trên **macOS** và **Windows**. Trên **Linux** cần thêm vào service trong `docker-compose.yml`:
+> ```yaml
+> extra_hosts:
+>   - "host.docker.internal:host-gateway"
+> ```
+
+### Rebuild container
+
+Sau khi thêm Xdebug vào Dockerfile, cần rebuild:
+
+```bash
+docker compose --profile project-a up -d --build
+```
+
+Kiểm tra Xdebug đã load chưa:
+
+```bash
+docker exec app-a php -m | grep xdebug
+```
+
+### Cấu hình VS Code
+
+**1.** Cài extension **PHP Debug** (`xdebug.php-debug`)
+
+**2.** File `.vscode/launch.json` trong workspace đã được tạo sẵn:
+
+```json
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "project-a: Listen for Xdebug",
+            "type": "php",
+            "request": "launch",
+            "port": 9003,
+            "pathMappings": {
+                "/var/www/html/tobyblog-md": "${workspaceFolder}/httpdocs/tobyblog-md"
+            }
+        }
+    ]
+}
+```
+
+> **`pathMappings`** ánh xạ đường dẫn trong container sang máy local. Vì volume mount là `./httpdocs:/var/www/html`, mỗi subfolder tương ứng trực tiếp:
+> - Container: `/var/www/html/<tên-project>`
+> - Local: `${workspaceFolder}/httpdocs/<tên-project>`
+
+**3.** Đặt breakpoint trong VS Code (click vào lề trái dòng code)
+
+**4.** Bấm `F5` hoặc vào **Run & Debug** → chọn `project-a: Listen for Xdebug` → Start
+
+**5.** Mở trình duyệt truy cập trang web → VS Code sẽ dừng tại breakpoint
+
+### Bật tắt Xdebug theo nhu cầu
+
+Mặc định `start_with_request = yes` — **mọi request đều qua Xdebug**, có thể làm chậm app khi VS Code không đang lắng nghe. Để chỉ debug khi cần, đổi trong `docker/project-a/xdebug.ini`:
+
+```ini
+xdebug.start_with_request = trigger
+```
+
+Sau đó dùng browser extension [Xdebug Helper](https://chromewebstore.google.com/detail/xdebug-helper/eadndfjplgieldjbigjakmdgkmoaaaoc) để bật/tắt theo từng request. Không cần rebuild — chỉ cần restart container vì `xdebug.ini` được mount dưới dạng volume:
+
+```bash
+docker compose restart app-a
+```
 
 ---
 
