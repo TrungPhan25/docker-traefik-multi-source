@@ -1,0 +1,181 @@
+# Hướng dẫn kiểm tra Traefik ↔ phpMyAdmin hoàn toàn qua CLI (SSH vào Ubuntu cloud)
+
+## Overview
+
+Vì host Ubuntu là cloud server không có GUI, ta sẽ làm 2 việc:
+
+1. **Trên server (qua SSH)** — kiểm tra Traefik nội bộ bằng `curl`, `docker`, `jq`.
+2. **Từ máy Windows** — dùng SSH tunnel để mở dashboard Traefik & phpMyAdmin trong browser local, không cần đụng DNS public.
+
+## Bước 1 — SSH vào server và khởi động stack
+
+```bash
+# Từ Windows (PowerShell hoặc CMD)
+ssh user@<cloud-ip>
+```
+
+Trên server, vào thư mục chứa `docker-compose.yml`:
+
+```bash
+cd /path/to/your/compose-project
+
+# Up đúng profile infra
+docker compose --profile infra up -d
+
+# Liệt kê container đang chạy
+docker compose --profile infra ps
+```
+
+Kỳ vọng thấy `traefik`, `mysql`, `phpmyadmin` ở trạng thái `running` / `healthy`.
+
+## Bước 2 — Kiểm tra Traefik đã discover router `pma`
+
+```bash
+# Cài jq nếu chưa có (chỉ cần 1 lần)
+sudo apt-get install -y jq
+
+# Liệt kê tất cả routers
+curl -s http://localhost:8080/api/http/routers | jq '.[] | {name, rule, status, service, entryPoints}'
+
+# Lọc riêng router pma
+curl -s http://localhost:8080/api/http/routers | jq '.[] | select(.name | startswith("pma"))'
+
+# Liệt kê services tương ứng
+curl -s http://localhost:8080/api/http/services | jq '.[] | select(.name | startswith("pma"))'
+```
+
+**Kết quả kỳ vọng** cho router `pma@docker`:
+
+```json
+{
+  "name": "pma@docker",
+  "rule": "Host(`pma.trungphan.local`)",
+  "status": "enabled",
+  "service": "pma-svc@docker",
+  "entryPoints": ["web"]
+}
+```
+
+Nếu `status` ≠ `enabled`, đọc tiếp phần `error` trong JSON đầy đủ:
+
+```bash
+curl -s http://localhost:8080/api/http/routers/pma@docker | jq
+```
+
+## Bước 3 — Test request thực tế bằng `curl` với Host header (không cần DNS)
+
+Đây là cách chuẩn nhất để xác minh Traefik **route đúng** mà không phụ thuộc `/etc/hosts`:
+
+```bash
+# Test trên chính server
+curl -I -H "Host: pma.trungphan.local" http://localhost
+# Kỳ vọng: HTTP/1.1 200 OK   hoặc   HTTP/1.1 302 Found (redirect tới /index.php)
+
+# Test full body (xem có ra trang login phpMyAdmin không)
+curl -sL -H "Host: pma.trungphan.local" http://localhost | grep -i "phpmyadmin\|<title>"
+```
+
+Bảng phán đoán nhanh:
+
+| Output | Ý nghĩa |
+| --- | --- |
+| `200` / `302`  • title phpMyAdmin | ✅ Traefik route OK |
+| `404 page not found` | ❌ Router không match — sai Host header hoặc Traefik chưa load label |
+| `502 Bad Gateway` | ⚠️ Traefik route đúng nhưng không nối được tới phpmyadmin (network / port sai) |
+| `connection refused` | ❌ Traefik container chưa lên hoặc không bind port 80 |
+
+## Bước 4 — Cross-check phpMyAdmin chạy độc lập có ổn không
+
+phpMyAdmin còn expose trực tiếp `8090:80`:
+
+```bash
+curl -I http://localhost:8090
+```
+
+- Nếu `8090` OK nhưng `curl -H "Host: pma..."` lỗi → vấn đề **ở Traefik** (label/network).
+- Nếu cả hai đều lỗi → vấn đề **ở phpMyAdmin/MySQL**.
+
+Xem log nếu nghi ngờ:
+
+```bash
+docker logs traefik --tail=100 | grep -i -E "pma|error|warn"
+docker logs phpmyadmin --tail=50
+```
+
+## Bước 5 — Mở dashboard & phpMyAdmin từ Windows qua SSH tunnel
+
+Bạn không thể trỏ DNS `pma.trungphan.local` ra Internet (đây là TLD `.local` ảo). Cách sạch nhất: **SSH local port forwarding**.
+
+### 5a. Tunnel cho Traefik dashboard
+
+Trên Windows (PowerShell hoặc CMD), mở **một terminal mới**:
+
+```powershell
+ssh -L 8080:localhost:8080 user@<cloud-ip>
+```
+
+Giữ terminal đó mở. Trong browser Windows truy cập:
+
+```
+http://localhost:8080/dashboard/
+```
+
+### 5b. Tunnel cho HTTP entrypoint (port 80) — để browse phpMyAdmin
+
+Port 80 trên Windows thường bị chiếm (IIS/Skype). Forward sang port khác, ví dụ `8000`:
+
+```powershell
+ssh -L 8000:localhost:80 user@<cloud-ip>
+```
+
+Vì Traefik route theo **Host header**, ta cần browser gửi `Host: pma.trungphan.local` khi gọi `localhost:8000`. Hai cách:
+
+**Cách 1 — Sửa file hosts Windows (đơn giản nhất)**
+
+File: `C:\Windows\System32\drivers\etc\hosts` (mở Notepad bằng quyền Administrator).
+
+Thêm dòng:
+
+```
+127.0.0.1   pma.trungphan.local
+```
+
+Truy cập browser: `http://pma.trungphan.local:8000`
+
+**Cách 2 — Không sửa hosts, dùng curl trực tiếp từ Windows**
+
+```powershell
+curl.exe -I -H "Host: pma.trungphan.local" http://localhost:8000
+```
+
+### 5c. Gộp nhiều tunnel trong 1 lệnh
+
+```powershell
+ssh -L 8080:localhost:8080 -L 8000:localhost:80 user@<cloud-ip>
+```
+
+## Trade-offs / Lưu ý
+
+- **`.local` TLD** dành cho mDNS (Bonjour). Không nên dùng cho production. Cho dev/cloud, hợp lý hơn là dùng `*.trungphan.test`, `*.lvh.me` (đã trỏ sẵn về 127.0.0.1), hoặc subdomain thật như `pma.dev.trungphan.io`.
+- Nếu muốn truy cập trực tiếp qua public IP cloud (không tunnel), bạn phải:
+    1. Mở port 80 trên firewall/security group của cloud.
+    2. Trỏ một domain thật về IP đó (hoặc sửa hosts Windows trỏ về public IP).
+    3. **Cảnh báo bảo mật**: phpMyAdmin + MySQL expose ra Internet là rủi ro lớn. Nếu làm, bật ngay TLS và HTTP Basic Auth qua Traefik middleware.
+- Traefik dashboard đang chạy với `--api.insecure=true` → **không bao giờ expose port 8080 ra Internet**. SSH tunnel là cách đúng.
+
+## Checklist nhanh
+
+- [ ]  `docker compose --profile infra ps` → cả 3 container running
+- [ ]  `curl -s localhost:8080/api/http/routers | jq` → router `pma@docker` enabled
+- [ ]  `curl -I -H "Host: pma.trungphan.local" http://localhost` → 200/302
+- [ ]  SSH tunnel `-L 8080:localhost:8080 -L 8000:localhost:80` hoạt động
+- [ ]  Windows `hosts` có `127.0.0.1 pma.trungphan.local`
+- [ ]  Browser mở `http://pma.trungphan.local:8000` thấy phpMyAdmin login
+
+## References
+
+- Traefik API & dashboard: https://doc.traefik.io/traefik/operations/api/
+- Traefik Docker routing: https://doc.traefik.io/traefik/routing/providers/docker/
+- OpenSSH port forwarding: https://man.openbsd.org/ssh#L (flag `-L`)
+
+Bạn muốn tôi viết một **script bash chạy 1 phát** để kiểm tra tuần tự bước 1–4 và in ra báo cáo PASS/FAIL không?
