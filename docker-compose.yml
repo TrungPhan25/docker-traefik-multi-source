@@ -3,7 +3,7 @@ services:
   # TRAEFIK - Reverse Proxy
   # ============================================
   traefik:
-    image: traefik:v3.1
+    image: traefik:v3.1 # v2.11 for ubuntu
     container_name: traefik
     profiles: ["infra"]
     command:
