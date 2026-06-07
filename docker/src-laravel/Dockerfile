@@ -55,8 +55,7 @@ WORKDIR /var/www/cloudteam-einvoice
 # KHÔNG COPY source — sẽ bind mount từ Ubuntu host vào lúc runtime.
 # Tạo sẵn thư mục để chown đúng owner; bind mount sẽ overlay lên sau.
 RUN mkdir -p storage bootstrap/cache \
- && chown -R www:www /var/www/cloudteam-einvoice
-
+ && chown -R www:www /var/www/src
 USER www
 
 EXPOSE 9000
