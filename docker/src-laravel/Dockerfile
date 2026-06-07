@@ -50,7 +50,7 @@ ARG GID=1000
 RUN groupadd -g ${GID} www \
  && useradd -u ${UID} -ms /bin/bash -g www www
 
-WORKDIR /var/www/cloudteam-einvoice
+WORKDIR /var/www/src
 
 # KHÔNG COPY source — sẽ bind mount từ Ubuntu host vào lúc runtime.
 # Tạo sẵn thư mục để chown đúng owner; bind mount sẽ overlay lên sau.
