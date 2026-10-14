@@ -1,6 +1,6 @@
 server {
     listen 80;
-    server_name project-b.localhost;
+    server_name project-b.dev.local;
     root /var/www/html/project-b/public;
     index index.php index.html;
 

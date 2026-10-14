@@ -35,6 +35,11 @@ Docker Compose template để chạy nhiều dự án PHP/Laravel trên cùng m�
   - [Quản lý domains SSL](#quản-lý-domains-ssl)
   - [Khi thêm domain mới](#khi-thêm-domain-mới)
   - [Script gen-certs.sh](#script-gen-certssh)
+- [Gọi API giữa các project (HTTPS nội bộ)](#gọi-api-giữa-các-project-https-nội-bộ)
+  - [Cách hoạt động](#cách-hoạt-động)
+  - [Checklist khi thêm project cần được gọi](#checklist-khi-thêm-project-cần-được-gọi)
+  - [Kiểm tra](#kiểm-tra)
+  - [Xử lý lỗi thường gặp](#xử-lý-lỗi-thường-gặp)
 - [Lưu ý quan trọng](#lưu-ý-quan-trọng)
 - [Xdebug](#xdebug)
   - [Cấu trúc file Xdebug](#cấu-trúc-file-xdebug)
@@ -178,7 +183,7 @@ docker compose --profile infra --profile project-a --profile project-b up -d
 | Service           | URL                          |
 | ----------------- | ---------------------------- |
 | Project A         | https://toby.vn              |
-| Project B         | https://project-b.localhost  |
+| Project B         | https://project-b.dev.local  |
 | phpMyAdmin        | https://pma.localhost        |
 | Traefik Dashboard | https://traefik.toby.local   |
 
@@ -298,6 +303,8 @@ nginx-toby:
 > - Đổi `Host(\`toby.localhost\`)`thành`Host(\`toby.vn\`)`
 > - Đổi `server_name` trong `default.conf` thành `toby.vn`
 > - Trỏ DNS hoặc thêm vào `/etc/hosts`: `127.0.0.1 toby.vn`
+>
+> **Project khác cần gọi API sang project này?** Thêm domain vào alias của Traefik — xem [Gọi API giữa các project](#gọi-api-giữa-các-project-https-nội-bộ). Domain `.localhost` không gọi nội bộ được.
 
 ### Bước 4: Thêm database
 
@@ -604,7 +611,97 @@ sudo sh -c 'echo "127.0.0.1 newdomain.com" >> /etc/hosts'
 Script tự động:
 - Đọc danh sách domain từ `docker/traefik/domains.txt`
 - Chạy `mkcert` để tạo cert
+- Copy `rootCA.pem` của mkcert vào `docker/traefik/certs/` (để các Dockerfile PHP trust HTTPS nội bộ)
 - Restart Traefik để load cert mới
+
+---
+
+## Gọi API giữa các project (HTTPS nội bộ)
+
+Cho phép code trong một project gọi project khác **bằng đúng domain HTTPS dùng trên trình duyệt**, vd trong `app-a`:
+
+```php
+Http::get('https://project-b.dev.local/api/users'); // không cần withoutVerifying()
+```
+
+### Cách hoạt động
+
+```
+app-a ──DNS: project-b.dev.local──▶ Docker DNS ──alias──▶ traefik:443
+                                                            │ TLS (cert mkcert, container đã trust CA)
+                                                            ▼ route theo Host
+                                                          nginx-b ──▶ app-b
+```
+
+Cần đủ **3 thứ**:
+
+| # | Thành phần | Nằm ở đâu | Thiếu thì lỗi gì |
+|---|---|---|---|
+| 1 | Domain là **network alias của Traefik** | `docker-compose.yml` → `traefik.networks.app-network.aliases` | `Could not resolve host` |
+| 2 | Container PHP **trust mkcert CA** | `COPY docker/traefik/certs/rootCA.pem ...` + `update-ca-certificates` trong Dockerfile | `cURL error 60: SSL certificate problem` |
+| 3 | Domain **được cert cover** | `docker/traefik/domains.txt` | `cURL error 60: SSL: no alternative certificate subject name matches` |
+
+> ⚠️ **Không dùng đuôi `.localhost` cho domain cần gọi nội bộ.** cURL (và PHP/Laravel `Http`) luôn ép `*.localhost` về `127.0.0.1` theo RFC 6761, **bỏ qua DNS/alias** → `Failed to connect ... port 443`. Dùng đuôi khác, vd `*.dev.local`, `*.toby.local` hoặc domain thật.
+>
+> Wildcard cũng phải có **ít nhất 2 cấp** (`*.dev.local` ✅, `*.localhost` ❌) — cURL từ chối wildcard 1 cấp.
+
+### Checklist khi thêm project cần được gọi
+
+Giả sử project mới có domain `toby.dev.local` (router label ``Host(`toby.dev.local`)``):
+
+1. **Thêm alias** cho Traefik trong `docker-compose.yml`:
+   ```yaml
+   traefik:
+     networks:
+       app-network:
+         aliases:
+           - toby.dev.local      # ← thêm dòng này, trùng với Host(...) của router
+   ```
+2. **Kiểm tra cert**: domain phải được cover bởi `docker/traefik/domains.txt` (`toby.dev.local` đã có `*.dev.local`). Nếu chưa → thêm domain rồi chạy `./scripts/gen-certs.sh`.
+3. **Dockerfile của project GỌI** (client) phải có đoạn trust CA, đặt **trước** `USER www`:
+   ```dockerfile
+   COPY docker/traefik/certs/rootCA.pem /usr/local/share/ca-certificates/mkcert-rootCA.crt
+   RUN update-ca-certificates
+   ```
+   File `rootCA.pem` do `./scripts/gen-certs.sh` tạo → **chạy script trước khi build**.
+4. **Áp dụng**:
+   ```bash
+   docker compose --profile infra up -d --force-recreate traefik   # nhận alias mới
+   docker compose --profile <project> up -d --build                # nếu sửa Dockerfile
+   ```
+
+> Không cần thêm gì vào `/etc/hosts` cho việc gọi nội bộ — `/etc/hosts` chỉ dành cho trình duyệt trên máy host.
+
+### Kiểm tra
+
+```bash
+# DNS: domain phải trỏ về IP của container traefik
+docker exec app-a getent hosts project-b.dev.local
+
+# HTTPS từ app-a → project-b (verify cert, không dùng -k)
+docker exec app-a curl -sS https://project-b.dev.local
+
+# Qua PHP cURL (giống Laravel Http)
+docker exec app-a php -r 'echo file_get_contents("https://project-b.dev.local");'
+
+# Chiều ngược lại
+docker exec app-b curl -sS https://toby.dev.local
+```
+
+### Xử lý lỗi thường gặp
+
+| Lỗi | Nguyên nhân | Cách sửa |
+|---|---|---|
+| `Could not resolve host` | Domain chưa có trong `aliases` hoặc Traefik chưa recreate | Thêm alias, `up -d --force-recreate traefik` |
+| `Failed to connect ... port 443` với domain `.localhost` | cURL ép `.localhost` về 127.0.0.1 | Đổi sang domain không phải `.localhost` |
+| `cURL error 60: unable to get local issuer certificate` | Image chưa trust mkcert CA | Chạy `gen-certs.sh`, thêm đoạn COPY CA vào Dockerfile, rebuild |
+| `COPY failed: ... rootCA.pem: not found` khi build | Chưa chạy `gen-certs.sh` | `./scripts/gen-certs.sh` rồi build lại |
+| `no alternative certificate subject name matches` | Domain không có trong cert | Thêm vào `domains.txt`, chạy `gen-certs.sh` |
+| `404 page not found` (của Traefik) | Router chưa đúng Host, hoặc Traefik chưa kịp nhận container vừa tạo | Kiểm tra label `Host(...)`, đợi vài giây rồi thử lại |
+
+> Nếu chạy lại `mkcert -install` trên máy khác/CA mới → chạy lại `gen-certs.sh` và **rebuild** các app container (CA được copy vào image lúc build).
+>
+> `docker-compose.http.ubuntu.yml` (bản HTTP-only) chưa áp dụng cơ chế này.
 
 ---
 

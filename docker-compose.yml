@@ -24,7 +24,13 @@ services:
       - ./docker/traefik/tls.yml:/traefik/tls.yml:ro
       - ./docker/traefik/certs:/certs:ro
     networks:
-      - app-network
+      app-network:
+        # Alias = domain của các project → container khác trong app-network
+        # resolve domain này về Traefik, nên app-a gọi https://project-b.dev.local được.
+        # Thêm domain mới vào đây khi thêm project (xem README: "Gọi API giữa các project").
+        aliases:
+          - toby.dev.local
+          - project-b.dev.local
     labels:
       - "traefik.enable=true"
       - "traefik.http.routers.traefik-dashboard.rule=Host(`traefik.toby.local`)"
@@ -148,7 +154,7 @@ services:
       - app-network
     labels:
       - "traefik.enable=true"
-      - "traefik.http.routers.project-b.rule=Host(`project-b.localhost`)"
+      - "traefik.http.routers.project-b.rule=Host(`project-b.dev.local`)"
       - "traefik.http.routers.project-b.entrypoints=websecure"
       - "traefik.http.routers.project-b.tls=true"
       - "traefik.http.services.project-b-svc.loadbalancer.server.port=80"

@@ -17,6 +17,11 @@ RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
 # Xdebug
 RUN pecl install xdebug && docker-php-ext-enable xdebug
 
+# Trust mkcert CA (để gọi HTTPS giữa các project không bị cURL error 60)
+# rootCA.pem được copy bởi scripts/gen-certs.sh → chạy script đó trước khi build
+COPY docker/traefik/certs/rootCA.pem /usr/local/share/ca-certificates/mkcert-rootCA.crt
+RUN update-ca-certificates
+
 # Working directory
 WORKDIR /var/www/html
 
