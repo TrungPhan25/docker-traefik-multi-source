@@ -33,6 +33,10 @@ mkdir -p "$(dirname "$CERT_FILE")"
 # Generate cert
 mkcert -cert-file "$CERT_FILE" -key-file "$KEY_FILE" $DOMAINS
 
+# Copy mkcert root CA → các Dockerfile PHP COPY file này để container trust HTTPS nội bộ
+cp "$(mkcert -CAROOT)/rootCA.pem" "$(dirname "$CERT_FILE")/rootCA.pem"
+echo "✓ Copied rootCA.pem (rebuild app containers nếu CA thay đổi)"
+
 # Restart Traefik to reload cert
 if docker ps --format '{{.Names}}' | grep -q '^traefik$'; then
   docker compose restart traefik
